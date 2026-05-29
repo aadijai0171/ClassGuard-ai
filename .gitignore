@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# YOLOv8 weights (auto-downloaded at runtime)
+*.pt
+*.onnx
+*.engine
+runs/
+
+# DeepFace / face data (sensitive)
+assets/encodings/
+assets/faces/
+
+# macOS
+.DS_Store
+__MACOSX/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+*.tmp
+
+# Media files
+*.mp4
+*.avi
+*.mov
+*.jpg
+*.jpeg
+*.png
+*.gif
+
+# Env vars
+.env
+.env.local
