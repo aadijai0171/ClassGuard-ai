@@ -6,6 +6,7 @@ import time
 import cv2
 import numpy as np
 import streamlit as st
+from PIL import Image
 from utils.state import init_state, get_engine, get_alert_mgr
 from utils.alert_manager import AlertLevel
 
@@ -19,11 +20,10 @@ def show():
 
     col_a, col_b, col_c = st.columns([2, 2, 3])
     with col_a:
-        cam_idx = st.session_state.settings.get("camera_index", 0)
         source = st.selectbox(
             "Video source",
-            ["Webcam (default)", "Upload video file", "Demo mode"],
-            index=2,
+            ["Webcam (browser)", "Upload video file", "Demo mode"],
+            index=0,
         )
     with col_b:
         sensitivity = st.slider(
@@ -48,12 +48,6 @@ def show():
 
     vid_col, stat_col = st.columns([3, 1])
 
-    with vid_col:
-        frame_placeholder = st.empty()
-        uploaded_video = None
-        if source == "Upload video file":
-            uploaded_video = st.file_uploader("Upload an MP4 / AVI file", type=["mp4", "avi", "mov"])
-
     with stat_col:
         st.markdown("### Live Metrics")
         metric_placeholder = st.empty()
@@ -63,11 +57,55 @@ def show():
     log_placeholder = st.empty()
 
     if not st.session_state.monitoring_active:
-        frame_placeholder.info("Press **▶ Start** to begin monitoring.")
+        with vid_col:
+            st.info("Press **▶ Start** to begin monitoring.")
         _render_log(log_placeholder)
         return
 
-    cap = _open_source(source, cam_idx, uploaded_video)
+    # ── Webcam via browser camera_input ──────────────────────────────────
+    if source == "Webcam (browser)":
+        with vid_col:
+            camera_image = st.camera_input("Point camera at classroom")
+
+        if camera_image is not None:
+            # Convert to OpenCV frame
+            img = Image.open(camera_image)
+            frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
+            result = engine.process_frame(frame, sensitivity=sensitivity)
+
+            st.session_state.history.append(result)
+            if len(st.session_state.history) > 300:
+                st.session_state.history.pop(0)
+
+            alert_event = alert_mgr.update(result.teacher_present, result.chaos_score)
+            if alert_event:
+                st.session_state.alert_log.append({
+                    "time": time.strftime("%H:%M:%S", time.localtime(alert_event.timestamp)),
+                    "level": alert_event.level.name,
+                    "chaos": f"{alert_event.chaos_score:.0f}%",
+                    "msg": alert_event.message,
+                    "ack": alert_event.acknowledged,
+                })
+                alert_placeholder.error(alert_event.message)
+
+            if result.annotated_frame is not None:
+                with vid_col:
+                    rgb = cv2.cvtColor(result.annotated_frame, cv2.COLOR_BGR2RGB)
+                    st.image(rgb, channels="RGB", width="stretch")
+
+            _render_metrics(metric_placeholder, alert_mgr, result)
+            _render_log(log_placeholder)
+        return
+
+    # ── Video file or Demo mode ───────────────────────────────────────────
+    with vid_col:
+        frame_placeholder = st.empty()
+        uploaded_video = None
+        if source == "Upload video file":
+            uploaded_video = st.file_uploader("Upload an MP4 / AVI file", type=["mp4", "avi", "mov"])
+
+    cap = _open_source(source, uploaded_video)
     if cap is None:
         st.error("Could not open video source. Switching to demo mode.")
         cap = _DemoCapture()
@@ -100,17 +138,44 @@ def show():
                     "msg": alert_event.message,
                     "ack": alert_event.acknowledged,
                 })
+                alert_placeholder.error(alert_event.message)
 
             if result.annotated_frame is not None:
                 rgb = cv2.cvtColor(result.annotated_frame, cv2.COLOR_BGR2RGB)
                 frame_placeholder.image(rgb, channels="RGB", width="stretch")
 
-            absence_s = int(alert_mgr.get_elapsed_absence())
-            level = alert_mgr.get_current_level()
-            badge_cls = {"NONE": "badge-green", "TEACHER": "badge-amber",
-                         "COORDINATOR": "badge-red", "CRITICAL": "badge-red"}.get(level.name, "badge-green")
+            _render_metrics(metric_placeholder, alert_mgr, result)
+            _render_log(log_placeholder)
 
-            metric_placeholder.markdown(f"""
+            elapsed = time.time() - t0
+            wait = frame_time - elapsed
+            if wait > 0:
+                time.sleep(wait)
+
+    finally:
+        cap.release()
+        st.session_state.monitoring_active = False
+
+
+def _open_source(source: str, uploaded_file):
+    if source == "Upload video file" and uploaded_file:
+        import tempfile
+        tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        tfile.write(uploaded_file.read())
+        tfile.flush()
+        cap = cv2.VideoCapture(tfile.name)
+        return cap if cap.isOpened() else None
+    else:
+        return _DemoCapture()
+
+
+def _render_metrics(metric_placeholder, alert_mgr, result):
+    absence_s = int(alert_mgr.get_elapsed_absence())
+    level = alert_mgr.get_current_level()
+    badge_cls = {"NONE": "badge-green", "TEACHER": "badge-amber",
+                 "COORDINATOR": "badge-red", "CRITICAL": "badge-red"}.get(level.name, "badge-green")
+
+    metric_placeholder.markdown(f"""
 <div class="metric-card {'red' if not result.teacher_present else 'green'}">
   <b>Teacher</b><br>
   <span class="badge {'badge-green' if result.teacher_present else 'badge-red'}">
@@ -150,35 +215,6 @@ def show():
   <br><small>Absence: {absence_s}s</small>
 </div>
 """, unsafe_allow_html=True)
-
-            if alert_event:
-                alert_placeholder.error(alert_event.message)
-
-            _render_log(log_placeholder)
-
-            elapsed = time.time() - t0
-            wait = frame_time - elapsed
-            if wait > 0:
-                time.sleep(wait)
-
-    finally:
-        cap.release()
-        st.session_state.monitoring_active = False
-
-
-def _open_source(source: str, cam_idx: int, uploaded_file):
-    if source == "Webcam (default)":
-        cap = cv2.VideoCapture(cam_idx)
-        return cap if cap.isOpened() else None
-    elif source == "Upload video file" and uploaded_file:
-        import tempfile
-        tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-        tfile.write(uploaded_file.read())
-        tfile.flush()
-        cap = cv2.VideoCapture(tfile.name)
-        return cap if cap.isOpened() else None
-    else:
-        return _DemoCapture()
 
 
 def _render_log(placeholder):
