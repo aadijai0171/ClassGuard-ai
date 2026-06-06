@@ -34,13 +34,13 @@ def show():
     with col_c:
         start_col, stop_col, ack_col = st.columns(3)
         with start_col:
-            if st.button("▶ Start", use_container_width=True, type="primary"):
+            if st.button("▶ Start", width="stretch", type="primary"):
                 st.session_state.monitoring_active = True
         with stop_col:
-            if st.button("⏹ Stop", use_container_width=True):
+            if st.button("⏹ Stop", width="stretch"):
                 st.session_state.monitoring_active = False
         with ack_col:
-            if st.button("✅ Ack Alert", use_container_width=True):
+            if st.button("✅ Ack Alert", width="stretch"):
                 alert_mgr.acknowledge()
                 st.success("Alert acknowledged")
 
@@ -103,7 +103,7 @@ def show():
 
             if result.annotated_frame is not None:
                 rgb = cv2.cvtColor(result.annotated_frame, cv2.COLOR_BGR2RGB)
-                frame_placeholder.image(rgb, channels="RGB", use_container_width=True)
+                frame_placeholder.image(rgb, channels="RGB", width="stretch")
 
             absence_s = int(alert_mgr.get_elapsed_absence())
             level = alert_mgr.get_current_level()

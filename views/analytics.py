@@ -67,7 +67,7 @@ def show():
     alerts = st.session_state.alert_log
     if alerts:
         alert_df = pd.DataFrame(alerts)
-        st.dataframe(alert_df, use_container_width=True)
+        st.dataframe(alert_df, width="stretch")
         csv = alert_df.to_csv(index=False)
         st.download_button(
             "⬇ Download Alert Log (CSV)",
